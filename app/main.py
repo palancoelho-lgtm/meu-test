@@ -1,56 +1,73 @@
 from flask import Flask, jsonify, request
+from flask_sqlalchemy import SQLAlchemy
 
 app = Flask(__name__)
 
-# lista que vai guardar nossas tarefas na memoria
-tarefas = []
+# Configura o banco de dados SQLite — vai criar um arquivo tarefas.db
+app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///tarefas.db"
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
+# Cria o objeto que vai gerenciar o banco de dados
+db = SQLAlchemy(app)
 
 
-# Rota para criar uma nova tarefa
+# Model — representa a tabela "tarefas" no banco de dados
+class Tarefa(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    titulo = db.Column(db.String(100), nullable=False)
+    concluida = db.Column(db.Boolean, default=False)
+
+
+# Cria as tabelas no banco de dados se ainda não existirem
+with app.app_context():
+    db.create_all()
+
+
+# GET — lista todas as tarefas
 @app.route("/tarefas", methods=["GET"])
 def listar_tarefas():
-    return jsonify(tarefas)
+    tarefas = Tarefa.query.all()
+    resultado = []
+    for t in tarefas:
+        resultado.append({"id": t.id, "titulo": t.titulo, "concluida": t.concluida})
+    return jsonify(resultado)
 
 
-# Rota post - criar uma nova tarefa
+# POST — cria uma nova tarefa
 @app.route("/tarefas", methods=["POST"])
 def criar_tarefa():
-    # Paga os dados enviados em formato JSON
     dados = request.get_json()
-
-    # Cria a nova tarefa com id, titulo e status
-    nova_tarefa = {
-        "id": len(tarefas) + 1,
-        "titulo": dados["titulo"],
-        "concluida": False,
-    }
-
-    # Adicionar a tarefa na lista
-    tarefas.append(nova_tarefa)
-    return jsonify(nova_tarefa), 201
+    nova = Tarefa(titulo=dados["titulo"])
+    db.session.add(nova)
+    db.session.commit()
+    return (
+        jsonify({"id": nova.id, "titulo": nova.titulo, "concluida": nova.concluida}),
+        201,
+    )
 
 
-# Rota PUT - marcar uma tarefa como concluída
+# PUT — marca uma tarefa como concluída
 @app.route("/tarefas/<int:id>", methods=["PUT"])
 def concluir_tarefa(id):
-    # PERCORRE A LISTA DE TAREFAS PARA ENCONTRAR A TAREFA COM O ID ESPECIFICADO
-    for tarefa in tarefas:
-        if tarefa["id"] == id:
-            tarefa["concluida"] = True
-            #  MUDA DE FALSE PARA TRUE
-            return jsonify(tarefa)
-    return jsonify({"error": "Tarefa não encontrada"}), 404
+    tarefa = Tarefa.query.get(id)
+    if not tarefa:
+        return jsonify({"error": "Tarefa não encontrada"}), 404
+    tarefa.concluida = True
+    db.session.commit()
+    return jsonify(
+        {"id": tarefa.id, "titulo": tarefa.titulo, "concluida": tarefa.concluida}
+    )
 
 
-# ROTA DELETE - REMOVER UMA TAREFA DA LISTA
+# DELETE — remove uma tarefa
 @app.route("/tarefas/<int:id>", methods=["DELETE"])
 def deletar_tarefa(id):
-    # PERCOE A LISTA PROCURANDO A TAREFA COM O ID INFORMADO
-    for tarefa in tarefas:
-        if tarefa["id"] == id:
-            tarefas.remove(tarefa)  # REMOVE A TAREFA DA LISTA
-            return jsonify({"message": "Tarefa deletada com sucesso"}), 200
-    return jsonify({"error": "Tarefa não encontrada"}), 404
+    tarefa = Tarefa.query.get(id)
+    if not tarefa:
+        return jsonify({"error": "Tarefa não encontrada"}), 404
+    db.session.delete(tarefa)
+    db.session.commit()
+    return jsonify({"message": "Tarefa deletada com sucesso"}), 200
 
 
 if __name__ == "__main__":
